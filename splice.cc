@@ -19,6 +19,42 @@
 *
 */
 
+struct syscallException : public std::exception
+{
+	std::string estr; //string form of error returned by strerror_r 
+	int 		error; //copy of actual errno 
+	const char *what() const throw () { return estr.c_str(); };
+	syscallException(void) {};
+	~syscallException(void) throw() {};
+};
+
+//reissue the syscall if it encounters a EINTR
+//return the return value of the syscall to the caller.
+#define _eintr(syscall) ({ int _rc; while(( _rc = (syscall)) < 0x0 && (errno == EINTR)); (_rc); })
+
+//reissue the syscall if its interrupted in the middle (EINTR)
+//return the return value of the syscall to the caller. 
+//copy the location of the error and the error string, errno 
+//to the exception and  throw the exception.
+#define _except(syscall) ({										\
+	int _rc;													\
+	char _estring[512] = {'\0'};								\
+	_rc = _eintr(syscall);	    								\
+	if ( _rc < 0) {				         						\
+		syscallException exc;									\
+		exc.error = errno;					    				\
+		char line[256] = {'\0'};								\
+		sprintf(line,"%s:%s:%d:", __FILE__, __FUNCTION__, __LINE__); \
+		exc.estr.append(line, strlen(line));					\
+		char *_ptr = strerror_r(errno, _estring, sizeof(_estring)); \
+		exc.estr += _ptr ? _ptr : "strerror_r() failure"; 		\
+		throw exc;    											\
+	}															\
+	(_rc);														\
+})
+
+
+
 int
 popenCustom(int *popenPipe, pid_t *childPid, const char *command, char **args) 
 {
